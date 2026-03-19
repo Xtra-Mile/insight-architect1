@@ -1,0 +1,87 @@
+import streamlit as st
+import anthropic
+import base64
+import json
+import plotly.graph_objects as go
+import pandas as pd
+from fpdf import FPDF
+import datetime
+
+# 1. Page Configuration
+st.set_page_config(page_title="Insight Architect 2026", layout="wide")
+st.title("📊 Insight Architect")
+st.markdown("Drop screenshots of charts to compare data and forecast trends.")
+
+# 2. Sidebar & API Key Logic
+with st.sidebar:
+    st.header("Settings")
+    # This looks for the secret you put in "Advanced Settings"
+    if "ANTHROPIC_API_KEY" in st.secrets:
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+    else:
+        api_key = st.text_input("Enter Anthropic API Key", type="password")
+    
+    enable_forecast = st.toggle("Enable 3-Month Forecast", value=True)
+    chart_style = st.selectbox("Chart Style", ["Bar", "Line", "Area"])
+
+client = anthropic.Anthropic(api_key=api_key) if api_key else None
+
+# 3. AI Processing Function
+def process_charts(files, do_forecast):
+    images = []
+    for f in files:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+        images.append({
+            "type": "image", 
+            "source": {"type": "base64", "media_type": "image/png", "data": b64}
+        })
+    
+    prompt = f"""
+    Analyze these charts. 1. Extract raw data. 2. Normalize X-axis categories.
+    3. Write a 3-sentence 'summary' of trends.
+    4. If forecast is requested, provide 3 'forecast' points per dataset.
+    Return ONLY JSON: 
+    {{ "summary": "...", "categories": [], "datasets": {{}}, "forecast": {{}}, "forecast_categories": [] }}
+    """
+    
+    response = client.messages.create(
+        model="claude-3-5-sonnet-20240620", # Using Sonnet for speed/reliability
+        max_tokens=3000,
+        messages=[{"role": "user", "content": [*images, {"type": "text", "text": prompt}]}]
+    )
+    return json.loads(response.content[0].text)
+
+# 4. App UI Logic
+uploaded_files = st.file_uploader("Upload Chart Screenshots", accept_multiple_files=True)
+
+if uploaded_files and client:
+    if st.button("🚀 Analyze & Compare"):
+        try:
+            with st.spinner("AI is reading your charts..."):
+                res = process_charts(uploaded_files, enable_forecast)
+                
+                # Show Summary
+                st.info(res['summary'])
+                
+                # Build Plotly Chart
+                fig = go.Figure()
+                for name, vals in res['datasets'].items():
+                    fig.add_trace(go.Bar(name=name, x=res['categories'], y=vals) if chart_style == "Bar" 
+                                  else go.Scatter(name=name, x=res['categories'], y=vals, mode='lines+markers'))
+                    
+                    if enable_forecast and 'forecast' in res:
+                        f_vals = res['forecast'][name]
+                        f_cats = res['forecast_categories']
+                        fig.add_trace(go.Scatter(name=f"{name} (Forecast)", x=f_cats, y=f_vals, line=dict(dash='dash')))
+
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Data Table & CSV Export
+                df = pd.DataFrame(res['datasets'], index=res['categories'])
+                st.dataframe(df, use_container_width=True)
+                st.download_button("📥 Download CSV", df.to_csv().encode('utf-8'), "data.csv")
+                
+        except Exception as e:
+            st.error(f"Error: {e}")
+elif not client:
+    st.warning("Please provide an API Key in the sidebar or Secrets.")
