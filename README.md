@@ -1,0 +1,19 @@
+# AI Integration
+anthropic
+
+# Core Framework & Data
+streamlit==1.55.0
+pandas==2.3.3
+numpy==2.4.3
+
+# Visualization
+altair==6.0.0
+pydeck==0.9.1
+
+# Utilities
+requests==2.32.5
+watchdog==6.0.0
+jinja2==3.1.6
+
+anthropic
+streamlit
