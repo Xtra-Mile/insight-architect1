@@ -2,4 +2,3 @@ streamlit
 anthropic
 plotly
 pandas
-fpdf2
